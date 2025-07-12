@@ -36,6 +36,8 @@ project(
 	LANGUAGES C
 )
 
+include(GNUInstallDirs)
+
 option(SODIUM_DISABLE_TESTS "Disable tests" OFF)
 option(SODIUM_MINIMAL "Only compile the minimum set of functions required for the high-level API" OFF)
 option(SODIUM_ENABLE_BLOCKING_RANDOM "Enable this switch only if /dev/urandom is totally broken on the target platform" OFF)
@@ -82,22 +84,23 @@ set_target_properties(
 target_include_directories(
 	`${PROJECT_NAME} 
 	PUBLIC
-    `${CMAKE_CURRENT_SOURCE_DIR}/libsodium/src/libsodium/include
+	`$<BUILD_INTERFACE:`${CMAKE_CURRENT_SOURCE_DIR}/libsodium/src/libsodium/include>
+	`$<INSTALL_INTERFACE:`${CMAKE_INSTALL_INCLUDEDIR}>
 	PRIVATE
-	`${CMAKE_CURRENT_SOURCE_DIR}/libsodium/src/libsodium/include/sodium
+	$<BUILD_INTERFACE:`${CMAKE_CURRENT_SOURCE_DIR}/libsodium/src/libsodium/include/sodium>
 )
 
 target_compile_definitions(
 	`${PROJECT_NAME}
     PUBLIC
-        $<$<NOT:$<BOOL:${BUILD_SHARED_LIBS}>>:SODIUM_STATIC>
-        $<$<BOOL:${SODIUM_MINIMAL}>:SODIUM_LIBRARY_MINIMAL>
+        `$<`$<NOT:`$<BOOL:`${BUILD_SHARED_LIBS}>>:SODIUM_STATIC>
+        `$<`$<BOOL:`${SODIUM_MINIMAL}>:SODIUM_LIBRARY_MINIMAL>
     PRIVATE
         CONFIGURED
-        $<$<BOOL:${BUILD_SHARED_LIBS}>:SODIUM_DLL_EXPORT>
-        $<$<BOOL:${SODIUM_ENABLE_BLOCKING_RANDOM}>:USE_BLOCKING_RANDOM>
-        $<$<BOOL:${SODIUM_MINIMAL}>:MINIMAL>
-        $<$<C_COMPILER_FRONTEND_VARIANT:MSVC>:_CRT_SECURE_NO_WARNINGS>
+        `$<`$<BOOL:`${BUILD_SHARED_LIBS}>:SODIUM_DLL_EXPORT>
+        `$<`$<BOOL:`${SODIUM_ENABLE_BLOCKING_RANDOM}>:USE_BLOCKING_RANDOM>
+        `$<`$<BOOL:`${SODIUM_MINIMAL}>:MINIMAL>
+        `$<`$<C_COMPILER_FRONTEND_VARIANT:MSVC>:_CRT_SECURE_NO_WARNINGS>
 )
 
 if(CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
@@ -130,6 +133,24 @@ configure_file(
 if(NOT SODIUM_DISABLE_TESTS)
     enable_testing()
 endif()
+
+install(
+    TARGETS `${PROJECT_NAME}
+    EXPORT `${PROJECT_NAME}Config
+    ARCHIVE DESTINATION `${CMAKE_INSTALL_LIBDIR}/`${PROJECT_NAME}
+)
+
+install(
+    DIRECTORY `${CMAKE_CURRENT_SOURCE_DIR}/libsodium/src/libsodium/include
+    DESTINATION `${CMAKE_INSTALL_INCLUDEDIR}/`${PROJECT_NAME} 
+    FILES_MATCHING PATTERN "*.h"
+)
+
+install(
+    EXPORT `${PROJECT_NAME}Config
+    NAMESPACE `${PROJECT_NAME}::
+    DESTINATION `${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}
+)
 
 "@ | Set-Content "CMakeLists.txt"
 
