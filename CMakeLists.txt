@@ -18,7 +18,7 @@ include(GNUInstallDirs)
 option(SODIUM_DISABLE_TESTS "Disable tests" OFF)
 option(SODIUM_MINIMAL "Only compile the minimum set of functions required for the high-level API" OFF)
 option(SODIUM_ENABLE_BLOCKING_RANDOM "Enable this switch only if /dev/urandom is totally broken on the target platform" OFF)
-option(ENABLE_SSP "Compile with -fstack-protector" ON)
+option(ENABLE_SSP "Stack smashing protection. Compile with -fstack-protector" ON)
 option(ENABLE_ASM "Compile assembly code (disables CPU-specific code when OFF). This is only relevant on non-windows platforms, turning off is only recommended for WebAssembly targets" ON)
 
 
@@ -114,7 +114,10 @@ set(
     "libsodium/src/libsodium/include/sodium/crypto_verify_16.h"
     "libsodium/src/libsodium/include/sodium/crypto_verify_32.h"
     "libsodium/src/libsodium/include/sodium/crypto_verify_64.h"
-
+    "libsodium/src/libsodium/include/sodium/crypto_xof_shake128.h"
+    "libsodium/src/libsodium/include/sodium/crypto_xof_shake256.h"
+    "libsodium/src/libsodium/include/sodium/crypto_xof_turboshake128.h"
+    "libsodium/src/libsodium/include/sodium/crypto_xof_turboshake256.h"
     "libsodium/src/libsodium/include/sodium/export.h"
     "libsodium/src/libsodium/include/sodium/randombytes.h"
     "libsodium/src/libsodium/include/sodium/randombytes_internal_random.h"
@@ -126,16 +129,8 @@ set(
 
 set(
     Header_Files
-	"libsodium/src/libsodium/crypto_aead/aegis128l/aegis128l_aesni.h"
-    "libsodium/src/libsodium/crypto_aead/aegis128l/aegis128l_armcrypto.h"
-    "libsodium/src/libsodium/crypto_aead/aegis128l/aegis128l_common.h"
-    "libsodium/src/libsodium/crypto_aead/aegis128l/aegis128l_soft.h"
-    "libsodium/src/libsodium/crypto_aead/aegis128l/implementations.h"
     "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_aesni.h"
     "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_armcrypto.h"
-    "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_common.h"
-    "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_soft.h"
-    "libsodium/src/libsodium/crypto_aead/aegis256/implementations.h"
     "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_25_5/base.h"
     "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_25_5/base2.h"
     "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_25_5/constants.h"
@@ -144,7 +139,6 @@ set(
     "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_51/base2.h"
     "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_51/constants.h"
     "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_51/fe.h"
-    "libsodium/src/libsodium/crypto_core/ed25519/core_h2c.h"
     "libsodium/src/libsodium/crypto_generichash/blake2b/ref/blake2.h"
     "libsodium/src/libsodium/crypto_generichash/blake2b/ref/blake2b-compress-avx2.h"
     "libsodium/src/libsodium/crypto_generichash/blake2b/ref/blake2b-compress-sse41.h"
@@ -196,52 +190,51 @@ set(
     "libsodium/src/libsodium/crypto_stream/salsa20/xmm6int/u4.h"
     "libsodium/src/libsodium/crypto_stream/salsa20/xmm6int/u8.h"
     "libsodium/src/libsodium/crypto_stream/salsa20/stream_salsa20.h"
-
-    "libsodium/src/libsodium/include/sodium/private/asm_cet.h"
-    "libsodium/src/libsodium/include/sodium/private/chacha20_ietf_ext.h"
-    "libsodium/src/libsodium/include/sodium/private/common.h"
-    "libsodium/src/libsodium/include/sodium/private/ed25519_ref10_fe_25_5.h"
-    "libsodium/src/libsodium/include/sodium/private/ed25519_ref10_fe_51.h"
-    "libsodium/src/libsodium/include/sodium/private/ed25519_ref10.h"
-    "libsodium/src/libsodium/include/sodium/private/implementations.h"
-    "libsodium/src/libsodium/include/sodium/private/mutex.h"
-    "libsodium/src/libsodium/include/sodium/private/quirks.h"
-    "libsodium/src/libsodium/include/sodium/private/softaes.h"
-    "libsodium/src/libsodium/include/sodium/private/sse2_64_32.h"
 )
 
-set(
-    Source_Files
-	"libsodium/src/libsodium/crypto_aead/aegis128l/aead_aegis128l.c"
-    "libsodium/src/libsodium/crypto_aead/aegis128l/aegis128l_aesni.c"
-    "libsodium/src/libsodium/crypto_aead/aegis128l/aegis128l_armcrypto.c"
+set(HEADER_FILES
+    "libsodium/src/libsodium/crypto_aead/aegis128l/aegis128l_common.h"
+    "libsodium/src/libsodium/crypto_aead/aegis128l/aegis128l_soft.h"
+    "libsodium/src/libsodium/crypto_aead/aegis128l/implementations.h"
+    "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_common.h"
+    "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_soft.h"
+    "libsodium/src/libsodium/crypto_aead/aegis256/implementations.h"
+    "libsodium/src/libsodium/crypto_core/ed25519/core_h2c.h"
+)
+
+set(SOURCE_FILES
+    "libsodium/src/libsodium/crypto_aead/aegis128l/aead_aegis128l.c"
     "libsodium/src/libsodium/crypto_aead/aegis128l/aegis128l_soft.c"
     "libsodium/src/libsodium/crypto_aead/aegis256/aead_aegis256.c"
-    "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_aesni.c"
-    "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_armcrypto.c"
     "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_soft.c"
-    "libsodium/src/libsodium/crypto_aead/aes256gcm/aesni/aead_aes256gcm_aesni.c"
-    "libsodium/src/libsodium/crypto_aead/aes256gcm/armcrypto/aead_aes256gcm_armcrypto.c"
     "libsodium/src/libsodium/crypto_aead/aes256gcm/aead_aes256gcm.c"
     "libsodium/src/libsodium/crypto_aead/chacha20poly1305/aead_chacha20poly1305.c"
     "libsodium/src/libsodium/crypto_aead/xchacha20poly1305/aead_xchacha20poly1305.c"
+    "libsodium/src/libsodium/crypto_auth/crypto_auth.c"
     "libsodium/src/libsodium/crypto_auth/hmacsha256/auth_hmacsha256.c"
     "libsodium/src/libsodium/crypto_auth/hmacsha512/auth_hmacsha512.c"
     "libsodium/src/libsodium/crypto_auth/hmacsha512256/auth_hmacsha512256.c"
-    "libsodium/src/libsodium/crypto_auth/crypto_auth.c"
-    "libsodium/src/libsodium/crypto_box/curve25519xchacha20poly1305/box_curve25519xchacha20poly1305.c"
-    "libsodium/src/libsodium/crypto_box/curve25519xchacha20poly1305/box_seal_curve25519xchacha20poly1305.c"
-    "libsodium/src/libsodium/crypto_box/curve25519xsalsa20poly1305/box_curve25519xsalsa20poly1305.c"
+    "libsodium/src/libsodium/crypto_box/crypto_box.c"
     "libsodium/src/libsodium/crypto_box/crypto_box_easy.c"
     "libsodium/src/libsodium/crypto_box/crypto_box_seal.c"
-    "libsodium/src/libsodium/crypto_box/crypto_box.c"
-    "libsodium/src/libsodium/crypto_core/ed25519/ref10/ed25519_ref10.c"
-    "libsodium/src/libsodium/crypto_core/ed25519/core_ed25519.c"
+    "libsodium/src/libsodium/crypto_box/curve25519xsalsa20poly1305/box_curve25519xsalsa20poly1305.c"
     "libsodium/src/libsodium/crypto_core/ed25519/core_h2c.c"
-    "libsodium/src/libsodium/crypto_core/ed25519/core_ristretto255.c"
+    "libsodium/src/libsodium/crypto_core/ed25519/ref10/ed25519_ref10.c"
     "libsodium/src/libsodium/crypto_core/hchacha20/core_hchacha20.c"
     "libsodium/src/libsodium/crypto_core/hsalsa20/ref2/core_hsalsa20_ref2.c"
     "libsodium/src/libsodium/crypto_core/hsalsa20/core_hsalsa20.c"
+    "libsodium/src/libsodium/crypto_core/keccak1600/keccak1600.c"
+    "libsodium/src/libsodium/crypto_core/keccak1600/ref/keccak1600_ref.c"
+
+    "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_aesni.c"
+    "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_armcrypto.c"
+    "libsodium/src/libsodium/crypto_aead/aes256gcm/aesni/aead_aes256gcm_aesni.c"
+    "libsodium/src/libsodium/crypto_aead/aes256gcm/armcrypto/aead_aes256gcm_armcrypto.c"
+    "libsodium/src/libsodium/crypto_box/curve25519xchacha20poly1305/box_curve25519xchacha20poly1305.c"
+    "libsodium/src/libsodium/crypto_box/curve25519xchacha20poly1305/box_seal_curve25519xchacha20poly1305.c"
+    "libsodium/src/libsodium/crypto_core/ed25519/core_ed25519.c"
+    "libsodium/src/libsodium/crypto_core/ed25519/core_ristretto255.c"
+    "libsodium/src/libsodium/crypto_core/hchacha20/core_hchacha20.c"
     "libsodium/src/libsodium/crypto_core/salsa/ref/core_salsa_ref.c"
     "libsodium/src/libsodium/crypto_core/softaes/softaes.c"
     "libsodium/src/libsodium/crypto_generichash/blake2b/ref/blake2b-compress-avx2.c"
@@ -344,11 +337,12 @@ set_target_properties(
 target_sources(
     ${PROJECT_NAME}
     PRIVATE 
-    ${Source_Files}
+        ${SOURCE_FILES}
+        ${HEADER_FILES}
     PUBLIC 
-    FILE_SET SODIUM_INCLUDE_HEADERS
-    BASE_DIRS include
-    FILES ${Header_Files}
+        FILE_SET SODIUM_INCLUDE_HEADERS
+            BASE_DIRS include
+            FILES ${SODIUM_include}
 )
 
 target_compile_definitions(
