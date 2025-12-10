@@ -1,28 +1,31 @@
 cmake_minimum_required(
-	VERSION 4.0.0 
+	VERSION 4.0.0
 	FATAL_ERROR
 )
 
 project(
-	libsodium 
+	libsodium
+    VERSION 1.0.21 # # You can find this in configure.ac AC_INIT
 	LANGUAGES C
 )
 
-# You can find this in configure.ac 
-set(VERSION 1.0.21) # AC_INIT
+
+set(VERSION ${CMAKE_PROJECT_VERSION})
 set(SODIUM_LIBRARY_VERSION_MAJOR 28)
 set(SODIUM_LIBRARY_VERSION_MINOR 0)
 
 include(GNUInstallDirs)
+include(CheckCSourceCompiles)
+include(CMakePackageConfigHelpers)
 
 option(SODIUM_DISABLE_TESTS "Disable tests" OFF)
 option(SODIUM_MINIMAL "Only compile the minimum set of functions required for the high-level API" OFF)
 option(SODIUM_ENABLE_BLOCKING_RANDOM "Enable this switch only if /dev/urandom is totally broken on the target platform" OFF)
-option(ENABLE_SSP "Stack smashing protection. Compile with -fstack-protector" ON)
-option(ENABLE_ASM "Compile assembly code (disables CPU-specific code when OFF). This is only relevant on non-windows platforms, turning off is only recommended for WebAssembly targets" ON)
+option(SODIUM_ENABLE_SSP "Stack smashing protection. Compile with -fstack-protector" ON)
+option(SODIUM_ENABLE_ASM "Compile assembly code (disables CPU-specific code when OFF). This is only relevant on non-windows platforms, turning off is only recommended for WebAssembly targets" ON)
+option(SODIUM_ENABLE_PIE "Build position-independent executables." OFF)
 
-
-if(ENABLE_SSP AND (NOT MSVC))
+if(SODIUM_ENABLE_SSP AND (NOT MSVC))
     add_compile_options(-fstack-protector)
 endif()
 
@@ -33,27 +36,49 @@ if(DEFINED ENV{EMSCRIPTEN})
     include(CheckCCompilerFlag)
     check_c_compiler_flag("-s ASSERTIONS=0" COMPILER_SUPPORTS_EMCC_FLAG)
     if(COMPILER_SUPPORTS_EMCC_FLAG)
-        set(ENABLE_ASM OFF CACHE BOOL "Compile assembly code" FORCE)
+        set(SODIUM_ENABLE_ASM OFF CACHE BOOL "Compile assembly code" FORCE)
         message(WARNING "Compiling to JavaScript via Emscripten - ASM implementations disabled")
     else()
         message(WARNING
             "EMSCRIPTEN environment variable defined, but compiler does not accept emcc flags. "
             "Assuming native compilation."
         )
-        add_compile_options(-U__EMSCRIPTEN__)
+        add_definitions(-U__EMSCRIPTEN__)
         unset(ENV{EMSCRIPTEN})
     endif()
 endif()
 
-if(NOT ENABLE_ASM)
-    # Disable assembly sources and CPU-specific optimisations
-    add_definitions(-DDISABLE_ASM)
-    # Or conditionally exclude asm files:
-    # set_source_files_properties(file.S PROPERTIES HEADER_FILE_ONLY TRUE)
+if(SODIUM_ENABLE_PIE)
+    add_compile_options(-fPIE)
+    add_link_options(-pie)
 endif()
 
-set(
-    SODIUM_INCLUDE_HEADERS
+message(CHECK_START "checking if we are using FilC")
+check_c_source_compiles("
+#ifndef __FILC__
+# error __FILC__ is not defined
+#endif
+int main(void) { return 0; }
+" COMPILER_IS_FILC)
+if(COMPILER_IS_FILC)
+    message(CHECK_PASS " - yes")
+
+    # Equivalent of: enable_asm="no"
+    set(SODIUM_ENABLE_ASM OFF CACHE BOOL
+        "Compile assembly code (disables CPU-specific implementations when OFF)"
+        FORCE
+    )
+
+    message(WARNING "compiling with FilC - asm implementations disabled")
+else()
+    message(CHECK_FAIL " - no")
+endif()
+
+if(SODIUM_ENABLE_ASM AND (NOT CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+    enable_language(ASM)
+endif()
+
+set(SODIUM_INCLUDE_HEADERS
     "libsodium/src/libsodium/include/sodium.h"
     "libsodium/src/libsodium/include/sodium/core.h"
     "libsodium/src/libsodium/include/sodium/crypto_aead_aes256gcm.h"
@@ -155,49 +180,20 @@ set(HEADER_FILES
     "libsodium/src/libsodium/crypto_sign/ed25519/ref10/sign_ed25519_ref10.h"
     "libsodium/src/libsodium/crypto_stream/chacha20/stream_chacha20.h"
     "libsodium/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.h"
-
-    "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_aesni.h"
-    "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_armcrypto.h"
-    "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_25_5/base.h"
-    "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_25_5/base2.h"
-    "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_25_5/constants.h"
-    "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_25_5/fe.h"
-    "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_51/base.h"
-    "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_51/base2.h"
-    "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_51/constants.h"
-    "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_51/fe.h"
-    "libsodium/src/libsodium/crypto_generichash/blake2b/ref/blake2b-compress-avx2.h"
-    "libsodium/src/libsodium/crypto_generichash/blake2b/ref/blake2b-compress-sse41.h"
-    "libsodium/src/libsodium/crypto_generichash/blake2b/ref/blake2b-compress-ssse3.h"
-    "libsodium/src/libsodium/crypto_onetimeauth/poly1305/sse2/poly1305_sse2.h"
-    "libsodium/src/libsodium/crypto_pwhash/argon2/blamka-round-avx2.h"
-    "libsodium/src/libsodium/crypto_pwhash/argon2/blamka-round-avx512f.h"
-    "libsodium/src/libsodium/crypto_pwhash/argon2/blamka-round-ssse3.h"
-    "libsodium/src/libsodium/crypto_pwhash/scryptsalsa208sha256/crypto_scrypt.h"
-    "libsodium/src/libsodium/crypto_pwhash/scryptsalsa208sha256/pbkdf2-sha256.h"
-    "libsodium/src/libsodium/crypto_scalarmult/curve25519/sandy2x/consts_namespace.h"
-    "libsodium/src/libsodium/crypto_scalarmult/curve25519/sandy2x/curve25519_sandy2x.h"
-    "libsodium/src/libsodium/crypto_scalarmult/curve25519/sandy2x/fe.h"
-    "libsodium/src/libsodium/crypto_scalarmult/curve25519/sandy2x/fe51_namespace.h"
-    "libsodium/src/libsodium/crypto_scalarmult/curve25519/sandy2x/fe51.h"
-    "libsodium/src/libsodium/crypto_scalarmult/curve25519/sandy2x/ladder_namespace.h"
-    "libsodium/src/libsodium/crypto_scalarmult/curve25519/sandy2x/ladder.h"
-    "libsodium/src/libsodium/crypto_stream/chacha20/dolbeau/chacha20_dolbeau-avx2.h"
-    "libsodium/src/libsodium/crypto_stream/chacha20/dolbeau/chacha20_dolbeau-ssse3.h"
-    "libsodium/src/libsodium/crypto_stream/chacha20/dolbeau/u0.h"
-    "libsodium/src/libsodium/crypto_stream/chacha20/dolbeau/u1.h"
-    "libsodium/src/libsodium/crypto_stream/chacha20/dolbeau/u4.h"
-    "libsodium/src/libsodium/crypto_stream/chacha20/dolbeau/u8.h"
-    "libsodium/src/libsodium/crypto_stream/salsa20/ref/salsa20_ref.h"
-    "libsodium/src/libsodium/crypto_stream/salsa20/xmm6/salsa20_xmm6-asm_namespace.h"
-    "libsodium/src/libsodium/crypto_stream/salsa20/xmm6/salsa20_xmm6.h"
-    "libsodium/src/libsodium/crypto_stream/salsa20/xmm6int/salsa20_xmm6int-avx2.h"
-    "libsodium/src/libsodium/crypto_stream/salsa20/xmm6int/salsa20_xmm6int-sse2.h"
-    "libsodium/src/libsodium/crypto_stream/salsa20/xmm6int/u0.h"
-    "libsodium/src/libsodium/crypto_stream/salsa20/xmm6int/u1.h"
-    "libsodium/src/libsodium/crypto_stream/salsa20/xmm6int/u4.h"
-    "libsodium/src/libsodium/crypto_stream/salsa20/xmm6int/u8.h"
     "libsodium/src/libsodium/crypto_stream/salsa20/stream_salsa20.h"
+    "libsodium/src/libsodium/crypto_xof/shake128/ref/shake128_ref.h"
+    "libsodium/src/libsodium/crypto_xof/shake256/ref/shake256_ref.h"
+    "libsodium/src/libsodium/crypto_xof/turboshake128/ref/turboshake128_ref.h"
+    "libsodium/src/libsodium/crypto_xof/turboshake256/ref/turboshake256_ref.h"
+    "libsodium/src/libsodium/include/sodium/private/asm_cet.h"
+    "libsodium/src/libsodium/include/sodium/private/chacha20_ietf_ext.h"
+    "libsodium/src/libsodium/include/sodium/private/common.h"
+    "libsodium/src/libsodium/include/sodium/private/ed25519_ref10.h"
+    "libsodium/src/libsodium/include/sodium/private/implementations.h"
+    "libsodium/src/libsodium/include/sodium/private/mutex.h"
+    "libsodium/src/libsodium/include/sodium/private/sse2_64_32.h"
+    "libsodium/src/libsodium/include/sodium/private/softaes.h"
+    "libsodium/src/libsodium/include/sodium/private/quirks.h"
 )
 
 set(SOURCE_FILES
@@ -267,63 +263,43 @@ set(SOURCE_FILES
     "libsodium/src/libsodium/crypto_sign/ed25519/ref10/open.c"
     "libsodium/src/libsodium/crypto_sign/ed25519/ref10/sign.c"
     "libsodium/src/libsodium/crypto_stream/chacha20/stream_chacha20.c"
-
-    "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_aesni.c"
-    "libsodium/src/libsodium/crypto_aead/aegis256/aegis256_armcrypto.c"
-    "libsodium/src/libsodium/crypto_aead/aes256gcm/aesni/aead_aes256gcm_aesni.c"
-    "libsodium/src/libsodium/crypto_aead/aes256gcm/armcrypto/aead_aes256gcm_armcrypto.c"
-    "libsodium/src/libsodium/crypto_box/curve25519xchacha20poly1305/box_curve25519xchacha20poly1305.c"
-    "libsodium/src/libsodium/crypto_box/curve25519xchacha20poly1305/box_seal_curve25519xchacha20poly1305.c"
-    "libsodium/src/libsodium/crypto_core/ed25519/core_ed25519.c"
-    "libsodium/src/libsodium/crypto_core/ed25519/core_ristretto255.c"
-    "libsodium/src/libsodium/crypto_core/hchacha20/core_hchacha20.c"
-    "libsodium/src/libsodium/crypto_core/softaes/softaes.c"
-    "libsodium/src/libsodium/crypto_generichash/blake2b/ref/blake2b-compress-avx2.c"
-    "libsodium/src/libsodium/crypto_generichash/blake2b/ref/blake2b-compress-sse41.c"
-    "libsodium/src/libsodium/crypto_generichash/blake2b/ref/blake2b-compress-ssse3.c"
-    "libsodium/src/libsodium/crypto_onetimeauth/poly1305/sse2/poly1305_sse2.c"
-    "libsodium/src/libsodium/crypto_pwhash/argon2/argon2-fill-block-avx2.c"
-    "libsodium/src/libsodium/crypto_pwhash/argon2/argon2-fill-block-avx512f.c"
-    "libsodium/src/libsodium/crypto_pwhash/argon2/argon2-fill-block-ssse3.c"
-    "libsodium/src/libsodium/crypto_pwhash/scryptsalsa208sha256/nosse/pwhash_scryptsalsa208sha256_nosse.c"
-    "libsodium/src/libsodium/crypto_pwhash/scryptsalsa208sha256/sse/pwhash_scryptsalsa208sha256_sse.c"
-    "libsodium/src/libsodium/crypto_pwhash/scryptsalsa208sha256/crypto_scrypt-common.c"
-    "libsodium/src/libsodium/crypto_pwhash/scryptsalsa208sha256/pbkdf2-sha256.c"
-    "libsodium/src/libsodium/crypto_pwhash/scryptsalsa208sha256/pwhash_scryptsalsa208sha256.c"
-    "libsodium/src/libsodium/crypto_pwhash/scryptsalsa208sha256/scrypt_platform.c"
-    "libsodium/src/libsodium/crypto_scalarmult/curve25519/sandy2x/curve25519_sandy2x.c"
-    "libsodium/src/libsodium/crypto_scalarmult/curve25519/sandy2x/fe_frombytes_sandy2x.c"
-    "libsodium/src/libsodium/crypto_scalarmult/curve25519/sandy2x/fe51_invert.c"
-    "libsodium/src/libsodium/crypto_scalarmult/ed25519/ref10/scalarmult_ed25519_ref10.c"
-    "libsodium/src/libsodium/crypto_scalarmult/ristretto255/ref10/scalarmult_ristretto255_ref10.c"
-    "libsodium/src/libsodium/crypto_secretbox/xchacha20poly1305/secretbox_xchacha20poly1305.c"
-    "libsodium/src/libsodium/crypto_shorthash/siphash24/ref/shorthash_siphashx24_ref.c"
-    "libsodium/src/libsodium/crypto_shorthash/siphash24/shorthash_siphashx24.c"
-    "libsodium/src/libsodium/crypto_stream/chacha20/dolbeau/chacha20_dolbeau-avx2.c"
-    "libsodium/src/libsodium/crypto_stream/chacha20/dolbeau/chacha20_dolbeau-ssse3.c"
     "libsodium/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c"
-    "libsodium/src/libsodium/crypto_stream/salsa20/ref/salsa20_ref.c"
-    "libsodium/src/libsodium/crypto_stream/salsa20/xmm6/salsa20_xmm6.c"
-    "libsodium/src/libsodium/crypto_stream/salsa20/xmm6int/salsa20_xmm6int-avx2.c"
-    "libsodium/src/libsodium/crypto_stream/salsa20/xmm6int/salsa20_xmm6int-sse2.c"
-    "libsodium/src/libsodium/crypto_stream/salsa20/stream_salsa20.c"
-    "libsodium/src/libsodium/crypto_stream/salsa2012/ref/stream_salsa2012_ref.c"
-    "libsodium/src/libsodium/crypto_stream/salsa2012/stream_salsa2012.c"
-    "libsodium/src/libsodium/crypto_stream/salsa208/ref/stream_salsa208_ref.c"
-    "libsodium/src/libsodium/crypto_stream/salsa208/stream_salsa208.c"
-    "libsodium/src/libsodium/crypto_stream/xchacha20/stream_xchacha20.c"
-    "libsodium/src/libsodium/crypto_stream/xsalsa20/stream_xsalsa20.c"
     "libsodium/src/libsodium/crypto_stream/crypto_stream.c"
+    "libsodium/src/libsodium/crypto_stream/salsa20/stream_salsa20.c"
+    "libsodium/src/libsodium/crypto_stream/xsalsa20/stream_xsalsa20.c"
     "libsodium/src/libsodium/crypto_verify/verify.c"
-    "libsodium/src/libsodium/randombytes/internal/randombytes_internal_random.c"
-    "libsodium/src/libsodium/randombytes/sysrandom/randombytes_sysrandom.c"
+    "libsodium/src/libsodium/crypto_xof/shake128/xof_shake128.c"
+    "libsodium/src/libsodium/crypto_xof/shake128/ref/shake128_ref.c"
+    "libsodium/src/libsodium/crypto_xof/shake256/xof_shake256.c"
+    "libsodium/src/libsodium/crypto_xof/shake256/ref/shake256_ref.c"
+    "libsodium/src/libsodium/crypto_xof/turboshake128/xof_turboshake128.c"
+    "libsodium/src/libsodium/crypto_xof/turboshake128/ref/turboshake128_ref.c"
+    "libsodium/src/libsodium/crypto_xof/turboshake256/xof_turboshake256.c"
+    "libsodium/src/libsodium/crypto_xof/turboshake256/ref/turboshake256_ref.c"
     "libsodium/src/libsodium/randombytes/randombytes.c"
     "libsodium/src/libsodium/sodium/codecs.c"
     "libsodium/src/libsodium/sodium/core.c"
-    "libsodium/src/libsodium/sodium/runtime.c"
     "libsodium/src/libsodium/sodium/utils.c"
     "libsodium/src/libsodium/sodium/version.c"
 )
+
+if(HAVE_TI_MODE)
+    set(HEADER_FILES ${HEADER_FILES}
+        "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_51/base.h"
+        "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_51/base2.h"
+        "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_51/constants.h"
+        "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_51/fe.h "
+        "include/sodium/private/ed25519_ref10_fe_51.h"
+        )
+else()
+    set(HEADER_FILES ${HEADER_FILES}
+        "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_25_5/base.h"
+        "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_25_5/base2.h"
+        "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_25_5/constants.h"
+        "libsodium/src/libsodium/crypto_core/ed25519/ref10/fe_25_5/fe.h"
+        "libsodium/src/libsodium/include/sodium/private/ed25519_ref10_fe_25_5.h"
+        )
+endif()
 
 add_library(${PROJECT_NAME})
 
@@ -340,7 +316,7 @@ target_sources(
         ${HEADER_FILES}
     PUBLIC 
         FILE_SET SODIUM_INCLUDE
-            BASE_DIRS include
+            BASE_DIRS libsodium/src/libsodium/include
             FILES ${SODIUM_INCLUDE_HEADERS}
 )
 
@@ -360,28 +336,31 @@ target_compile_definitions(
 configure_file(
     libsodium/src/libsodium/include/sodium/version.h.in
     ${CMAKE_CURRENT_SOURCE_DIR}/libsodium/src/libsodium/include/sodium/version.h
+    @ONLY
 )
 
 target_compile_options(
 	${PROJECT_NAME}
     PUBLIC
         # blake2b-compress-avx2
-        $<$<CMAKE_C_COMPILER_ID:Clang>:"-mavx2">
+        $<$<CMAKE_C_COMPILER_ID:Clang>:-mavx2>
     PRIVATE
         # aead_aes256gcm_aesni
-        $<$<CMAKE_C_COMPILER_ID:Clang>:"-maes -mpclmul -mssse3">
+        $<$<CMAKE_C_COMPILER_ID:Clang>:-maes;-mpclmul;-mssse3>
 )
 
-if(SODIUM_MINIMAL)
+if(SODIUM_MINIMAL) # TODO
     set(SODIUM_LIBRARY_MINIMAL_DEF "#define SODIUM_LIBRARY_MINIMAL 1")
 endif()
 
 ## Test
-if(NOT SODIUM_DISABLE_TESTS)
+if(NOT SODIUM_DISABLE_TESTS) #TODO
     enable_testing()
 endif()
 
 ## Install and configuration file generation
+set(config_install_dir "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+
 install(
     TARGETS ${PROJECT_NAME}
     EXPORT ${PROJECT_NAME}Targets
@@ -391,24 +370,23 @@ install(
 install(
     EXPORT ${PROJECT_NAME}Targets
     NAMESPACE ${PROJECT_NAME}::
-    DESTINATION "cmake"
+    DESTINATION "${config_install_dir}"
 )
 
-include(CMakePackageConfigHelpers)
+configure_package_config_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/${PROJECT_NAME}Config.cmake.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+        INSTALL_DESTINATION "${config_install_dir}"
+)
+
 write_basic_package_version_file(
         "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
         VERSION ${PROJECT_VERSION}
         COMPATIBILITY SameMajorVersion
 )
 
-configure_package_config_file(
-        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/${PROJECT_NAME}Config.cmake.in"
-        "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
-        INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake"
-)
-
 install(FILES
         "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
         "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
-        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake"
+        DESTINATION "${config_install_dir}"
 )
