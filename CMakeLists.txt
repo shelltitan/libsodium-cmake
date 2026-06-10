@@ -1166,13 +1166,8 @@ source_group(
     FILES ${Generated_Header_Files}
 )
 
-set(
-    ALL_FILES
-    ${Header_Files}
-    ${Source_Files}
-    ${Support_Files}
-    ${Generated_Header_Files}
-)
+set(SODIUM_PRIVATE_HEADER_FILES ${Header_Files})
+list(REMOVE_ITEM SODIUM_PRIVATE_HEADER_FILES ${Public_Header_Files})
 
 if(SODIUM_MINIMAL)
     set(SODIUM_LIBRARY_MINIMAL_DEF "#define SODIUM_LIBRARY_MINIMAL 1")
@@ -1194,12 +1189,34 @@ configure_file(
 
 add_library(
     ${PROJECT_NAME}
-    ${ALL_FILES}
 )
 
 add_library(
     ${PROJECT_NAME}::${PROJECT_NAME}
     ALIAS ${PROJECT_NAME}
+)
+
+target_sources(
+    ${PROJECT_NAME}
+    PRIVATE
+        ${Source_Files}
+        ${Support_Files}
+    PRIVATE
+        FILE_SET sodium_private_headers
+        TYPE HEADERS
+        BASE_DIRS
+            "${CMAKE_CURRENT_SOURCE_DIR}/libsodium/src/libsodium"
+        FILES
+            ${SODIUM_PRIVATE_HEADER_FILES}
+    PUBLIC
+        FILE_SET sodium_public_headers
+        TYPE HEADERS
+        BASE_DIRS
+            "${CMAKE_CURRENT_SOURCE_DIR}/libsodium/src/libsodium/include"
+            "${CMAKE_CURRENT_BINARY_DIR}/include"
+        FILES
+            ${Public_Header_Files}
+            ${Generated_Header_Files}
 )
 
 set_target_properties(
@@ -1387,27 +1404,7 @@ install(
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-)
-
-foreach(public_header IN LISTS Public_Header_Files)
-    get_filename_component(public_header_directory "${public_header}" DIRECTORY)
-    string(REGEX REPLACE "^libsodium/src/libsodium/include/?" "" public_header_install_directory "${public_header_directory}")
-    if(public_header_install_directory STREQUAL "")
-        install(
-            FILES "${CMAKE_CURRENT_SOURCE_DIR}/${public_header}"
-            DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
-        )
-    else()
-        install(
-            FILES "${CMAKE_CURRENT_SOURCE_DIR}/${public_header}"
-            DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${public_header_install_directory}"
-        )
-    endif()
-endforeach()
-
-install(
-    FILES "${CMAKE_CURRENT_BINARY_DIR}/include/sodium/version.h"
-    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/sodium"
+    FILE_SET sodium_public_headers DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
 )
 
 install(
