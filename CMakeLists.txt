@@ -122,6 +122,14 @@ if(NOT "${CMAKE_C_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC")
     if(NOT SODIUM_COMMON_COMPILE_OPTIONS MATCHES "(^|;)-fno-strict-overflow($|;)")
         sodium_append_supported_compile_option(SODIUM_COMMON_COMPILE_OPTIONS "-fwrapv")
     endif()
+
+    string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" SODIUM_SYSTEM_PROCESSOR)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU"
+        AND CMAKE_C_COMPILER_VERSION VERSION_LESS 4.3
+        AND SODIUM_SYSTEM_PROCESSOR MATCHES "^(i.86|x86_64|amd64)$")
+        sodium_append_supported_compile_option(SODIUM_COMMON_COMPILE_OPTIONS "-flax-vector-conversions")
+    endif()
+
     sodium_append_supported_compile_option(SODIUM_COMMON_COMPILE_OPTIONS "-Wno-deprecated-declarations")
     sodium_append_supported_compile_option(SODIUM_COMMON_COMPILE_OPTIONS "-Wno-unknown-pragmas")
 
