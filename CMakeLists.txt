@@ -24,7 +24,6 @@ option(SODIUM_MINIMAL "Only compile the minimum set of functions required for th
 option(SODIUM_ENABLE_BLOCKING_RANDOM "Enable this switch only if /dev/urandom is totally broken on the target platform" OFF)
 option(SODIUM_ENABLE_SSP "Compile with stack protector flags when supported" ON)
 option(SODIUM_ENABLE_ASM "Compile assembly code and assembly-backed implementations when supported" ON)
-option(SODIUM_ENABLE_PIE "Produce position independent code/executables when supported" ON)
 option(SODIUM_WITH_PTHREADS "Use pthreads library when available" ON)
 option(SODIUM_WITH_SAFECODE "For maintainers only - please do not use" OFF)
 option(SODIUM_WITH_CTGRIND "For maintainers only - please do not use" OFF)
@@ -130,10 +129,6 @@ if(NOT "${CMAKE_C_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC")
         sodium_append_supported_compile_option(SODIUM_COMMON_COMPILE_OPTIONS "-fstack-protector")
     endif()
 
-    if(SODIUM_ENABLE_PIE)
-        sodium_append_supported_compile_option(SODIUM_COMMON_COMPILE_OPTIONS "-fPIE")
-    endif()
-
     if(SODIUM_ENABLE_RETPOLINE)
         sodium_append_supported_compile_option(SODIUM_COMMON_COMPILE_OPTIONS "-mindirect-branch=thunk-inline")
         if(NOT SODIUM_COMMON_COMPILE_OPTIONS MATCHES "(^|;)-mindirect-branch=thunk-inline($|;)")
@@ -212,6 +207,51 @@ if(SODIUM_ENABLE_DEBUG)
             sodium_append_supported_compile_warning(SODIUM_CWFLAGS_LIST "${sodium_cwflag}")
         endforeach()
     endif()
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    check_c_compiler_flag("-Werror" SODIUM_SUPPORTS_WERROR)
+    set(sodium_fortify_required_flags "")
+    foreach(sodium_common_compile_option IN LISTS SODIUM_COMMON_COMPILE_OPTIONS)
+        string(APPEND sodium_fortify_required_flags " ${sodium_common_compile_option}")
+    endforeach()
+    if(SODIUM_SUPPORTS_WERROR)
+        string(APPEND sodium_fortify_required_flags " -Werror")
+    endif()
+
+    foreach(sodium_fortify_source_level IN ITEMS 3 2)
+        if(NOT SODIUM_FORTIFY_SOURCE)
+            set(sodium_fortify_undefined_variable "SODIUM_FORTIFY_SOURCE_${sodium_fortify_source_level}_UNDEFINED")
+            set(sodium_fortify_works_variable "SODIUM_FORTIFY_SOURCE_${sodium_fortify_source_level}_WORKS")
+            cmake_push_check_state(RESET)
+            set(CMAKE_REQUIRED_FLAGS "${sodium_fortify_required_flags}")
+            check_c_source_compiles("
+int main(void) {
+#ifndef _FORTIFY_SOURCE
+    return 0;
+#else
+    _FORTIFY_SOURCE_already_defined;
+#endif
+}
+" ${sodium_fortify_undefined_variable})
+            if(${sodium_fortify_undefined_variable})
+                check_c_source_compiles("
+#define _FORTIFY_SOURCE ${sodium_fortify_source_level}
+#include <string.h>
+int main(void) {
+    char *s = \" \";
+    strcpy(s, \"x\");
+    return (int) strlen(s) - 1;
+}
+" ${sodium_fortify_works_variable})
+            endif()
+            cmake_pop_check_state()
+            if(${sodium_fortify_works_variable})
+                set(SODIUM_FORTIFY_SOURCE "${sodium_fortify_source_level}")
+                list(APPEND SODIUM_COMMON_COMPILE_OPTIONS "-D_FORTIFY_SOURCE=${SODIUM_FORTIFY_SOURCE}")
+            endif()
+        endif()
+    endforeach()
 endif()
 
 check_include_file("sys/mman.h" SODIUM_HAVE_SYS_MMAN_H)
@@ -1293,7 +1333,6 @@ set_target_properties(
         C_STANDARD 99
         C_STANDARD_REQUIRED ON
         C_EXTENSIONS ON
-        POSITION_INDEPENDENT_CODE ${SODIUM_ENABLE_PIE}
 )
 
 if(BUILD_SHARED_LIBS AND SODIUM_ENABLE_SONAME_VERSIONS)
