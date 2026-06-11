@@ -78,6 +78,24 @@ function(sodium_append_supported_compile_option output_variable option)
     endif()
 endfunction()
 
+function(sodium_append_supported_compile_warning output_variable option)
+    string(MAKE_C_IDENTIFIER "${output_variable}_${option}" option_id)
+    set(flag_variable "SODIUM_SUPPORTS_${option_id}")
+    set(required_flags "")
+    set(candidate_flags "${${output_variable}}")
+    list(APPEND candidate_flags "${option}")
+    foreach(candidate_flag IN LISTS candidate_flags)
+        string(APPEND required_flags " ${candidate_flag}")
+    endforeach()
+    cmake_push_check_state(RESET)
+    set(CMAKE_REQUIRED_FLAGS "${required_flags}")
+    check_c_source_compiles("int main(void) { return 0; }" ${flag_variable})
+    cmake_pop_check_state()
+    if(${flag_variable})
+        set(${output_variable} "${${output_variable}};${option}" PARENT_SCOPE)
+    endif()
+endfunction()
+
 function(sodium_append_supported_link_option output_variable option)
     string(MAKE_C_IDENTIFIER "${option}" option_id)
     set(flag_variable "SODIUM_SUPPORTS_LINK_${option_id}")
@@ -95,6 +113,8 @@ endfunction()
 
 set(SODIUM_COMMON_COMPILE_OPTIONS "")
 set(SODIUM_COMMON_LINK_OPTIONS "")
+set(SODIUM_CWFLAGS_LIST "")
+set(SODIUM_OUTPUT_DEF_FILE "")
 
 if(NOT "${CMAKE_C_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC")
     sodium_append_supported_compile_option(SODIUM_COMMON_COMPILE_OPTIONS "-fvisibility=hidden")
@@ -137,6 +157,14 @@ if(NOT "${CMAKE_C_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC")
     endif()
 endif()
 
+if(BUILD_SHARED_LIBS AND (WIN32 OR CYGWIN) AND NOT "${CMAKE_C_COMPILER_LINKER_FRONTEND_VARIANT}" STREQUAL "MSVC")
+    check_linker_flag(C "-Wl,--output-def,conftest.def" SODIUM_SUPPORTS_LINK_OUTPUT_DEF)
+    if(SODIUM_SUPPORTS_LINK_OUTPUT_DEF)
+        set(SODIUM_OUTPUT_DEF_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-${DLL_VERSION}.def")
+        list(APPEND SODIUM_COMMON_LINK_OPTIONS "-Wl,--output-def,${SODIUM_OUTPUT_DEF_FILE}")
+    endif()
+endif()
+
 if(SODIUM_ENABLE_DEBUG)
     if(NOT "${CMAKE_C_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC")
         sodium_append_supported_compile_option(SODIUM_COMMON_COMPILE_OPTIONS "-O")
@@ -144,6 +172,46 @@ if(SODIUM_ENABLE_DEBUG)
         sodium_append_supported_compile_option(SODIUM_COMMON_COMPILE_OPTIONS "-U_FORTIFY_SOURCE")
     endif()
     separate_arguments(SODIUM_CWFLAGS_LIST NATIVE_COMMAND "${SODIUM_CWFLAGS}")
+    if(NOT "${CMAKE_C_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC")
+        sodium_append_supported_compile_warning(SODIUM_CWFLAGS_LIST "-Wall")
+        if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+            sodium_append_supported_compile_warning(SODIUM_CWFLAGS_LIST "-Wno-unknown-warning-option")
+        endif()
+        foreach(sodium_cwflag IN ITEMS
+            "-Wextra"
+            "-Warray-bounds"
+            "-Wbad-function-cast"
+            "-Wcast-qual"
+            "-Wdiv-by-zero"
+            "-Wduplicated-branches"
+            "-Wduplicated-cond"
+            "-Wfloat-equal"
+            "-Wformat=2"
+            "-Wlogical-op"
+            "-Wmaybe-uninitialized"
+            "-Wmisleading-indentation"
+            "-Wmissing-declarations"
+            "-Wmissing-prototypes"
+            "-Wnested-externs"
+            "-Wno-type-limits"
+            "-Wno-unknown-pragmas"
+            "-Wnormalized=id"
+            "-Wnull-dereference"
+            "-Wold-style-declaration"
+            "-Wpointer-arith"
+            "-Wredundant-decls"
+            "-Wrestrict"
+            "-Wshorten-64-to-32"
+            "-Wsometimes-uninitialized"
+            "-Wstrict-prototypes"
+            "-Wswitch-enum"
+            "-Wvariable-decl"
+            "-Wvla"
+            "-Wwrite-strings"
+        )
+            sodium_append_supported_compile_warning(SODIUM_CWFLAGS_LIST "${sodium_cwflag}")
+        endforeach()
+    endif()
 endif()
 
 check_include_file("sys/mman.h" SODIUM_HAVE_SYS_MMAN_H)
@@ -1411,6 +1479,13 @@ install(
     FILES "${CMAKE_CURRENT_BINARY_DIR}/libsodium.pc"
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig"
 )
+
+if(SODIUM_OUTPUT_DEF_FILE)
+    install(
+        FILES "${SODIUM_OUTPUT_DEF_FILE}"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    )
+endif()
 
 install(
     EXPORT ${PROJECT_NAME}Config
