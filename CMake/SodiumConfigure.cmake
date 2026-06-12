@@ -352,6 +352,20 @@ else()
 endif()
 
 check_c_source_compiles([[
+#include <limits.h>
+#include <stdint.h>
+int main(void) {
+    (void) SIZE_MAX;
+    (void) UINT64_MAX;
+    return 0;
+}
+]] SODIUM_STDC_LIMIT_MACROS_NOT_REQUIRED)
+
+if(NOT SODIUM_STDC_LIMIT_MACROS_NOT_REQUIRED)
+    list(APPEND SODIUM_COMMON_COMPILE_OPTIONS "-D__STDC_LIMIT_MACROS" "-D__STDC_CONSTANT_MACROS")
+endif()
+
+check_c_source_compiles([[
 int main(void) {
     int n = 1;
     char vla[n];
