@@ -409,12 +409,20 @@ int main(void) {
 ]] SODIUM_HAVE_INLINE_ASM)
 
 if(SODIUM_NATIVE_LITTLE_ENDIAN AND NOT SODIUM_EMSCRIPTEN)
+    cmake_push_check_state(RESET)
+    set(CMAKE_REQUIRED_DEFINITIONS "-DNATIVE_LITTLE_ENDIAN=1")
     check_c_source_compiles([[
 #if !defined(__clang__) && !defined(__GNUC__) && !defined(__SIZEOF_INT128__)
 # error mode(TI) is a gcc extension, and __int128 is not available
 #endif
 #if defined(__clang__) && !defined(__x86_64__) && !defined(__aarch64__)
 # error clang does not properly handle the 128-bit type on 32-bit systems
+#endif
+#ifndef NATIVE_LITTLE_ENDIAN
+# error libsodium currently expects a little endian CPU for the 128-bit type
+#endif
+#ifdef __EMSCRIPTEN__
+# error emscripten currently doesn't support some operations on integers larger than 64 bits
 #endif
 #include <stddef.h>
 #include <stdint.h>
@@ -430,6 +438,7 @@ void fcontract(uint128_t *t) {
 }
 int main(void) { return 0; }
 ]] SODIUM_HAVE_TI_MODE)
+    cmake_pop_check_state()
 else()
     set(SODIUM_HAVE_TI_MODE OFF)
 endif()
@@ -482,6 +491,19 @@ int main(void) {
 
     check_c_source_compiles([[
 int main(void) {
+    __asm__ __volatile__ (".private_extern dummy_symbol \n"
+                          ".private_extern _dummy_symbol \n"
+                          ".globl dummy_symbol \n"
+                          ".globl _dummy_symbol \n"
+                          "dummy_symbol: \n"
+                          "_dummy_symbol: \n"
+                          "    nop \n");
+    return 0;
+}
+]] SODIUM_HAVE_ASM_PRIVATE_EXTERN)
+
+    check_c_source_compiles([[
+int main(void) {
     __asm__ __volatile__ (".hidden dummy_symbol \n"
                           ".hidden _dummy_symbol \n"
                           ".globl dummy_symbol \n"
@@ -492,11 +514,24 @@ int main(void) {
     return 0;
 }
 ]] SODIUM_HAVE_ASM_HIDDEN)
+
+    if(SODIUM_HAVE_ASM_PRIVATE_EXTERN AND SODIUM_HAVE_ASM_HIDDEN)
+        message(STATUS "Unable to reliably tag asm symbols as private")
+        set(SODIUM_ASM_HIDE_SYMBOL "")
+    elseif(SODIUM_HAVE_ASM_PRIVATE_EXTERN)
+        set(SODIUM_ASM_HIDE_SYMBOL ".private_extern")
+    elseif(SODIUM_HAVE_ASM_HIDDEN)
+        set(SODIUM_ASM_HIDE_SYMBOL ".hidden")
+    else()
+        set(SODIUM_ASM_HIDE_SYMBOL "")
+    endif()
 else()
     set(SODIUM_HAVE_AMD64_ASM OFF)
     set(SODIUM_HAVE_AVX_ASM OFF)
     set(SODIUM_HAVE_CPUID OFF)
+    set(SODIUM_HAVE_ASM_PRIVATE_EXTERN OFF)
     set(SODIUM_HAVE_ASM_HIDDEN OFF)
+    set(SODIUM_ASM_HIDE_SYMBOL "")
 endif()
 
 check_c_source_compiles([[
