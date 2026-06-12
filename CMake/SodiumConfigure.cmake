@@ -24,10 +24,21 @@ check_c_source_compiles([[
 int main(void) { return 0; }
 ]] SODIUM_WASI)
 
+check_c_source_compiles([[
+#ifndef __COMPCERT__
+# error __COMPCERT__ is not defined
+#endif
+int main(void) { return 0; }
+]] SODIUM_COMPCERT)
+
 set(SODIUM_EFFECTIVE_ENABLE_ASM ${SODIUM_ENABLE_ASM})
 if(SODIUM_EMSCRIPTEN)
     set(SODIUM_EFFECTIVE_ENABLE_ASM OFF)
     message(STATUS "Emscripten target detected; asm implementations disabled")
+endif()
+if(SODIUM_COMPCERT)
+    set(SODIUM_EFFECTIVE_ENABLE_ASM OFF)
+    message(WARNING "Compiling with CompCert; asm implementations disabled")
 endif()
 
 function(sodium_check_c_source_compiles_with_flags output_variable flags source)
@@ -164,6 +175,10 @@ set(SODIUM_COMMON_LINK_OPTIONS "")
 set(SODIUM_CWFLAGS_LIST "")
 set(SODIUM_OUTPUT_DEF_FILE "")
 set(SODIUM_TLS "")
+
+if(SODIUM_COMPCERT)
+    sodium_append_supported_compile_option(SODIUM_COMMON_COMPILE_OPTIONS "-fstruct-passing")
+endif()
 
 set(SODIUM_GNU_WINDOWS_TARGET OFF)
 if(WIN32 OR CYGWIN OR MSYS OR CMAKE_SYSTEM_NAME MATCHES "^(CYGWIN|MSYS|Windows.*)$")
@@ -560,12 +575,20 @@ int main(void) { return 0; }
 # define __ARM_FEATURE_AES 1
 #endif
 #include <arm_neon.h>
+#ifdef __clang__
+# pragma clang attribute push(__attribute__((target("neon,crypto,aes"))), apply_to = function)
+#elif defined(__GNUC__)
+# pragma GCC target("+simd+crypto")
+#endif
 int main(void) {
     int64x2_t x = { 0, 0 };
     vaeseq_u8(vmovq_n_u8(0), vmovq_n_u8(0));
     vmull_high_p64(vreinterpretq_p64_s64(x), vreinterpretq_p64_s64(x));
     return 0;
 }
+#ifdef __clang__
+# pragma clang attribute pop
+#endif
 ]])
         if(NOT SODIUM_HAVE_ARMCRYPTO)
             check_c_compiler_flag("-march=armv8-a+crypto+aes" SODIUM_SUPPORTS_MARCH_ARMV8_CRYPTO_AES)
@@ -578,12 +601,20 @@ int main(void) {
 # define __ARM_FEATURE_AES 1
 #endif
 #include <arm_neon.h>
+#ifdef __clang__
+# pragma clang attribute push(__attribute__((target("neon,crypto,aes"))), apply_to = function)
+#elif defined(__GNUC__)
+# pragma GCC target("+simd+crypto")
+#endif
 int main(void) {
     int64x2_t x = { 0, 0 };
     vaeseq_u8(vmovq_n_u8(0), vmovq_n_u8(0));
     vmull_high_p64(vreinterpretq_p64_s64(x), vreinterpretq_p64_s64(x));
     return 0;
 }
+#ifdef __clang__
+# pragma clang attribute pop
+#endif
 ]])
                 if(SODIUM_HAVE_ARMCRYPTO_WITH_FLAG)
                     set(SODIUM_HAVE_ARMCRYPTO ON)
