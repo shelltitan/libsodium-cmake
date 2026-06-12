@@ -17,6 +17,13 @@ else()
     set(SODIUM_EMSCRIPTEN OFF)
 endif()
 
+check_c_source_compiles([[
+#ifndef __wasi__
+# error __wasi__ is not defined
+#endif
+int main(void) { return 0; }
+]] SODIUM_WASI)
+
 set(SODIUM_EFFECTIVE_ENABLE_ASM ${SODIUM_ENABLE_ASM})
 if(SODIUM_EMSCRIPTEN)
     set(SODIUM_EFFECTIVE_ENABLE_ASM OFF)
@@ -126,10 +133,48 @@ function(sodium_add_definition_if output_variable condition_variable definition)
     endif()
 endfunction()
 
+function(sodium_check_thread_local_storage output_variable)
+    set(sodium_tls_result "")
+    foreach(sodium_tls_keyword IN ITEMS
+        "thread_local"
+        "_Thread_local"
+        "__thread"
+        "__declspec(thread)"
+    )
+        if(NOT sodium_tls_result)
+            string(MAKE_C_IDENTIFIER "${sodium_tls_keyword}" sodium_tls_keyword_id)
+            set(sodium_tls_variable "SODIUM_SUPPORTS_TLS_${sodium_tls_keyword_id}")
+            check_c_source_compiles("
+#include <stdlib.h>
+int main(void) {
+    static ${sodium_tls_keyword} int bar;
+    return bar;
+}
+" ${sodium_tls_variable})
+            if(${sodium_tls_variable})
+                set(sodium_tls_result "${sodium_tls_keyword}")
+            endif()
+        endif()
+    endforeach()
+    set(${output_variable} "${sodium_tls_result}" PARENT_SCOPE)
+endfunction()
+
 set(SODIUM_COMMON_COMPILE_OPTIONS "")
 set(SODIUM_COMMON_LINK_OPTIONS "")
 set(SODIUM_CWFLAGS_LIST "")
 set(SODIUM_OUTPUT_DEF_FILE "")
+set(SODIUM_TLS "")
+
+set(SODIUM_GNU_WINDOWS_TARGET OFF)
+if(WIN32 OR CYGWIN OR MSYS OR CMAKE_SYSTEM_NAME MATCHES "^(CYGWIN|MSYS|Windows.*)$")
+    set(SODIUM_GNU_WINDOWS_TARGET ON)
+endif()
+
+set(SODIUM_GNU_WINDOWS_OR_EMBEDDED_ABI_TARGET "${SODIUM_GNU_WINDOWS_TARGET}")
+string(TOLOWER "${CMAKE_SYSTEM_NAME};${CMAKE_C_COMPILER_TARGET};${CMAKE_C_COMPILER}" sodium_target_descriptor)
+if(sodium_target_descriptor MATCHES "(^|[^a-z0-9])(pw32|cegcc|eabi)([^a-z0-9]|$)")
+    set(SODIUM_GNU_WINDOWS_OR_EMBEDDED_ABI_TARGET ON)
+endif()
 
 if(NOT "${CMAKE_C_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC")
     foreach(sodium_common_flag IN ITEMS
@@ -182,6 +227,10 @@ if(NOT "${CMAKE_C_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC")
         endforeach()
     endif()
 
+    if(SODIUM_GNU_WINDOWS_OR_EMBEDDED_ABI_TARGET)
+        sodium_append_supported_compile_option(SODIUM_COMMON_COMPILE_OPTIONS "-fno-asynchronous-unwind-tables")
+    endif()
+
     if(NOT SODIUM_EMSCRIPTEN)
         foreach(sodium_hardening_link_flag IN ITEMS
             "-Wl,-z,relro"
@@ -193,8 +242,18 @@ if(NOT "${CMAKE_C_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC")
     endif()
 endif()
 
+if(SODIUM_GNU_WINDOWS_TARGET AND NOT "${CMAKE_C_COMPILER_LINKER_FRONTEND_VARIANT}" STREQUAL "MSVC")
+    foreach(sodium_windows_link_flag IN ITEMS
+        "-Wl,--dynamicbase"
+        "-Wl,--high-entropy-va"
+        "-Wl,--nxcompat"
+    )
+        sodium_append_supported_link_option(SODIUM_COMMON_LINK_OPTIONS "${sodium_windows_link_flag}")
+    endforeach()
+endif()
+
 # Upstream installs this generated import definition file when GNU-like Windows linkers support it.
-if(BUILD_SHARED_LIBS AND (WIN32 OR CYGWIN) AND NOT "${CMAKE_C_COMPILER_LINKER_FRONTEND_VARIANT}" STREQUAL "MSVC")
+if(BUILD_SHARED_LIBS AND SODIUM_GNU_WINDOWS_TARGET AND NOT "${CMAKE_C_COMPILER_LINKER_FRONTEND_VARIANT}" STREQUAL "MSVC")
     check_linker_flag(C "-Wl,--output-def,conftest.def" SODIUM_SUPPORTS_LINK_OUTPUT_DEF)
     if(SODIUM_SUPPORTS_LINK_OUTPUT_DEF)
         set(SODIUM_OUTPUT_DEF_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-${DLL_VERSION}.def")
@@ -286,32 +345,40 @@ int main(void) {
 ]] SODIUM_HAVE_C_VARARRAYS)
 
 check_symbol_exists(alloca "alloca.h;stdlib.h" SODIUM_HAVE_ALLOCA)
-check_function_exists(arc4random SODIUM_HAVE_ARC4RANDOM)
-check_function_exists(arc4random_buf SODIUM_HAVE_ARC4RANDOM_BUF)
-check_function_exists(mmap SODIUM_HAVE_MMAP)
-check_function_exists(mlock SODIUM_HAVE_MLOCK)
-check_function_exists(madvise SODIUM_HAVE_MADVISE)
-check_function_exists(mprotect SODIUM_HAVE_MPROTECT)
-check_function_exists(raise SODIUM_HAVE_RAISE)
-check_function_exists(sysconf SODIUM_HAVE_SYSCONF)
-check_function_exists(getpid SODIUM_HAVE_GETPID)
-check_function_exists(getauxval SODIUM_HAVE_GETAUXVAL)
-check_function_exists(elf_aux_info SODIUM_HAVE_ELF_AUX_INFO)
+if(NOT SODIUM_EMSCRIPTEN)
+    check_function_exists(arc4random SODIUM_HAVE_ARC4RANDOM)
+    check_function_exists(arc4random_buf SODIUM_HAVE_ARC4RANDOM_BUF)
+    if(NOT SODIUM_WASI)
+        check_function_exists(mmap SODIUM_HAVE_MMAP)
+        check_function_exists(mlock SODIUM_HAVE_MLOCK)
+        check_function_exists(madvise SODIUM_HAVE_MADVISE)
+        check_function_exists(mprotect SODIUM_HAVE_MPROTECT)
+        check_function_exists(raise SODIUM_HAVE_RAISE)
+        check_function_exists(sysconf SODIUM_HAVE_SYSCONF)
+    endif()
+    check_symbol_exists(getrandom "stdlib.h;unistd.h;sys/random.h" SODIUM_HAVE_GETRANDOM)
+    check_symbol_exists(getentropy "stdlib.h;unistd.h;sys/random.h" SODIUM_HAVE_GETENTROPY)
+endif()
+
+if(NOT SODIUM_WASI)
+    check_function_exists(getpid SODIUM_HAVE_GETPID)
+    check_function_exists(getauxval SODIUM_HAVE_GETAUXVAL)
+    check_function_exists(elf_aux_info SODIUM_HAVE_ELF_AUX_INFO)
+endif()
+
 check_function_exists(posix_memalign SODIUM_HAVE_POSIX_MEMALIGN)
 check_function_exists(nanosleep SODIUM_HAVE_NANOSLEEP)
 check_function_exists(clock_gettime SODIUM_HAVE_CLOCK_GETTIME)
-check_function_exists(memset_s SODIUM_HAVE_MEMSET_S)
-check_function_exists(explicit_bzero SODIUM_HAVE_EXPLICIT_BZERO)
-check_function_exists(memset_explicit SODIUM_HAVE_MEMSET_EXPLICIT)
-check_function_exists(explicit_memset SODIUM_HAVE_EXPLICIT_MEMSET)
+
+if(NOT SODIUM_WASI)
+    check_function_exists(memset_s SODIUM_HAVE_MEMSET_S)
+    check_function_exists(explicit_bzero SODIUM_HAVE_EXPLICIT_BZERO)
+    check_function_exists(memset_explicit SODIUM_HAVE_MEMSET_EXPLICIT)
+    check_function_exists(explicit_memset SODIUM_HAVE_EXPLICIT_MEMSET)
+endif()
 
 if(WIN32)
     set(SODIUM_HAVE_GETPID OFF)
-endif()
-
-if(NOT SODIUM_EMSCRIPTEN)
-    check_symbol_exists(getrandom "stdlib.h;unistd.h;sys/random.h" SODIUM_HAVE_GETRANDOM)
-    check_symbol_exists(getentropy "stdlib.h;unistd.h;sys/random.h" SODIUM_HAVE_GETENTROPY)
 endif()
 
 check_c_source_compiles([[
@@ -692,6 +759,13 @@ if(SODIUM_WITH_PTHREADS)
             string(APPEND PKGCONFIG_LIBS_PRIVATE " ${CMAKE_THREAD_LIBS_INIT}")
         else()
             string(APPEND PKGCONFIG_LIBS_PRIVATE " -pthread")
+        endif()
+        sodium_check_thread_local_storage(SODIUM_TLS)
+        if(SODIUM_TLS)
+            message(STATUS "Thread local storage is supported: ${SODIUM_TLS}")
+            sodium_append_supported_compile_option(SODIUM_COMMON_COMPILE_OPTIONS "-ftls-model=global-dynamic")
+        else()
+            message(STATUS "Thread local storage is not supported")
         endif()
     else()
         set(SODIUM_HAVE_PTHREAD OFF)

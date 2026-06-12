@@ -842,6 +842,10 @@ foreach(condition_variable definition IN ZIP_LISTS SODIUM_PRIVATE_DEFINITION_CON
     sodium_add_definition_if(SODIUM_PRIVATE_DEFINITIONS "${condition_variable}" "${definition}")
 endforeach()
 
+if(SODIUM_TLS)
+    list(APPEND SODIUM_PRIVATE_DEFINITIONS "TLS=${SODIUM_TLS}")
+endif()
+
 target_compile_definitions(
     ${PROJECT_NAME}
     PUBLIC
